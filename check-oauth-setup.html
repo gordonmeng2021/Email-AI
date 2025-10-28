@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OAuth Setup Checker</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #1a73e8;
+        }
+        .input-group {
+            margin: 20px 0;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        input:focus {
+            outline: none;
+            border-color: #1a73e8;
+        }
+        .output {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 5px;
+            margin-top: 20px;
+            border-left: 4px solid #1a73e8;
+        }
+        .success {
+            color: #0f9d58;
+            font-weight: bold;
+        }
+        .error {
+            color: #d93025;
+            font-weight: bold;
+        }
+        .info {
+            background: #e8f0fe;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+            border-left: 4px solid #1a73e8;
+        }
+        code {
+            background: #f1f3f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+        .checklist {
+            list-style: none;
+            padding: 0;
+        }
+        .checklist li {
+            padding: 10px;
+            margin: 5px 0;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+        .checklist li::before {
+            content: "✓ ";
+            color: #0f9d58;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 OAuth Setup Checker</h1>
+        
+        <div class="info">
+            <strong>📋 Instructions:</strong>
+            <ol>
+                <li>Get your Extension ID from <code>chrome://extensions/</code></li>
+                <li>Enter your OAuth Client ID from Google Cloud Console</li>
+                <li>This tool will verify your configuration</li>
+            </ol>
+        </div>
+
+        <div class="input-group">
+            <label for="extensionId">Chrome Extension ID:</label>
+            <input type="text" id="extensionId" placeholder="abcdefghijklmnopqrstuvwxyz123456" />
+            <small style="color: #666;">Find this at chrome://extensions/ under your extension</small>
+        </div>
+
+        <div class="input-group">
+            <label for="clientId">OAuth Client ID:</label>
+            <input type="text" id="clientId" placeholder="123456789-abc...def.apps.googleusercontent.com" />
+            <small style="color: #666;">From Google Cloud Console → Credentials</small>
+        </div>
+
+        <div class="output" id="output">
+            <p><em>Enter your details above to check your configuration...</em></p>
+        </div>
+    </div>
+
+    <script>
+        const extensionIdInput = document.getElementById('extensionId');
+        const clientIdInput = document.getElementById('clientId');
+        const output = document.getElementById('output');
+
+        function checkSetup() {
+            const extensionId = extensionIdInput.value.trim();
+            const clientId = clientIdInput.value.trim();
+
+            if (!extensionId && !clientId) {
+                output.innerHTML = '<p><em>Enter your details above to check your configuration...</em></p>';
+                return;
+            }
+
+            let html = '<h3>Configuration Check:</h3>';
+            let errors = [];
+            let warnings = [];
+            let info = [];
+
+            // Check Extension ID
+            if (extensionId) {
+                if (extensionId.length === 32) {
+                    html += '<p class="success">✓ Extension ID length is correct (32 characters)</p>';
+                } else {
+                    errors.push(`Extension ID should be 32 characters, yours is ${extensionId.length}`);
+                }
+
+                if (/^[a-z]+$/.test(extensionId)) {
+                    html += '<p class="success">✓ Extension ID format is valid (lowercase letters only)</p>';
+                } else {
+                    errors.push('Extension ID should only contain lowercase letters');
+                }
+
+                info.push(`Expected Redirect URI: <code>https://${extensionId}.chromiumapp.org/</code>`);
+            }
+
+            // Check Client ID
+            if (clientId) {
+                if (clientId.endsWith('.apps.googleusercontent.com')) {
+                    html += '<p class="success">✓ Client ID has correct suffix</p>';
+                } else {
+                    errors.push('Client ID should end with .apps.googleusercontent.com');
+                }
+
+                if (clientId.startsWith('http://') || clientId.startsWith('https://')) {
+                    errors.push('Client ID should NOT start with http:// or https://');
+                }
+
+                if (clientId.endsWith('/')) {
+                    errors.push('Client ID should NOT end with a slash /');
+                }
+
+                const parts = clientId.split('-');
+                if (parts.length >= 2 && !isNaN(parts[0])) {
+                    html += '<p class="success">✓ Client ID format looks correct</p>';
+                } else {
+                    warnings.push('Client ID format may be incorrect (should start with numbers)');
+                }
+            }
+
+            // Display errors
+            if (errors.length > 0) {
+                html += '<h4 style="color: #d93025;">❌ Errors Found:</h4><ul>';
+                errors.forEach(err => html += `<li class="error">${err}</li>`);
+                html += '</ul>';
+            }
+
+            // Display warnings
+            if (warnings.length > 0) {
+                html += '<h4 style="color: #f9ab00;">⚠️ Warnings:</h4><ul>';
+                warnings.forEach(warn => html += `<li style="color: #f9ab00;">${warn}</li>`);
+                html += '</ul>';
+            }
+
+            // Display info
+            if (info.length > 0) {
+                html += '<h4 style="color: #1a73e8;">ℹ️ Configuration Info:</h4>';
+                info.forEach(inf => html += `<p>${inf}</p>`);
+            }
+
+            // Checklist
+            if (extensionId && clientId && errors.length === 0) {
+                html += '<h4 style="color: #0f9d58;">✅ Next Steps:</h4>';
+                html += '<ul class="checklist">';
+                html += '<li>Update <code>public/manifest.json</code> with this Client ID</li>';
+                html += '<li>Run <code>npm run build</code></li>';
+                html += '<li>Reload extension in Chrome</li>';
+                html += '<li>In Google Cloud Console, verify redirect URI is set to:<br><code>https://' + extensionId + '.chromiumapp.org/</code></li>';
+                html += '<li>Make sure your Gmail address is added as a test user (if in testing mode)</li>';
+                html += '</ul>';
+
+                html += '<h4>📋 Your manifest.json should have:</h4>';
+                html += '<pre style="background: #f1f3f4; padding: 15px; border-radius: 5px; overflow-x: auto;">';
+                html += JSON.stringify({
+                    "oauth2": {
+                        "client_id": clientId,
+                        "scopes": [
+                            "https://www.googleapis.com/auth/gmail.readonly",
+                            "https://www.googleapis.com/auth/gmail.modify",
+                            "https://www.googleapis.com/auth/gmail.labels",
+                            "https://www.googleapis.com/auth/gmail.compose",
+                            "https://www.googleapis.com/auth/userinfo.email"
+                        ]
+                    }
+                }, null, 2);
+                html += '</pre>';
+            }
+
+            output.innerHTML = html;
+        }
+
+        extensionIdInput.addEventListener('input', checkSetup);
+        clientIdInput.addEventListener('input', checkSetup);
+    </script>
+</body>
+</html>
+
