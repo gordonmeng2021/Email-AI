@@ -1,50 +1,103 @@
-import { getApiKeys, getSettings } from '../utils/storage.js';
-import { API_ENDPOINTS, getHeaders, API_TIMEOUT } from '../config/apiConfig.js';
-import { API_CONFIG_KEYS } from '../utils/constants.js';
+import { getSettings } from '../utils/storage.js';
 
 /**
  * Translation Service
- * Detects language and translates draft replies if needed
+ * Uses Chrome's built-in Language Detector API and Translator API
+ * References:
+ * - https://developer.chrome.com/docs/ai/language-detection
+ * - https://developer.chrome.com/docs/ai/translator-api
  */
 
 /**
- * Detect language of text
+ * Check if Language Detector API is available
+ * @returns {Promise<string>} 'available', 'after-download', or 'unavailable'
+ */
+async function checkLanguageDetectorAvailability() {
+  try {
+    if (!('LanguageDetector' in self)) {
+      console.warn('Language Detector API not supported in this browser');
+      return 'unavailable';
+    }
+    return await self.LanguageDetector.availability();
+  } catch (error) {
+    console.error('Error checking Language Detector API availability:', error);
+    return 'unavailable';
+  }
+}
+
+/**
+ * Check if Translator API is available for a language pair
+ * @param {string} sourceLang - Source language code
+ * @param {string} targetLang - Target language code
+ * @returns {Promise<string>} 'available', 'after-download', or 'unavailable'
+ */
+async function checkTranslatorAvailability(sourceLang, targetLang) {
+  try {
+    if (!('Translator' in self)) {
+      console.warn('Translator API not supported in this browser');
+      return 'unavailable';
+    }
+    return await self.Translator.availability({
+      sourceLanguage: sourceLang,
+      targetLanguage: targetLang
+    });
+  } catch (error) {
+    console.error('Error checking Translator API availability:', error);
+    return 'unavailable';
+  }
+}
+
+/**
+ * Detect language of text using Chrome's Language Detector API
  * @param {string} text - Text to analyze
  * @returns {Promise<string>} Detected language code (e.g., 'en', 'es', 'fr')
  */
 export async function detectLanguage(text) {
   try {
-    const apiKeys = await getApiKeys();
-    const apiKey = apiKeys[API_CONFIG_KEYS.TRANSLATOR];
-
-    if (!apiKey) {
-      // Simple fallback detection
+    // Check availability
+    const availability = await checkLanguageDetectorAvailability();
+    
+    if (availability === 'unavailable') {
+      console.warn('Language Detector API unavailable, using fallback detection');
       return simpleLanguageDetection(text);
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
-
-    const response = await fetch(API_ENDPOINTS.TRANSLATOR, {
-      method: 'POST',
-      headers: getHeaders(apiKey),
-      body: JSON.stringify({
-        text: text,
-        task: 'detect'
-      }),
-      signal: controller.signal
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      throw new Error(`Translation API error: ${response.status}`);
+    // Create language detector
+    let detector;
+    if (availability === 'after-download') {
+      console.log('Language Detector model downloading...');
+      detector = await self.LanguageDetector.create({
+        monitor(m) {
+          m.addEventListener('downloadprogress', (e) => {
+            console.log(`Language Detector model download progress: ${Math.round(e.loaded * 100)}%`);
+          });
+        }
+      });
+    } else {
+      detector = await self.LanguageDetector.create();
     }
 
-    const data = await response.json();
-    return data.language || data.detected_language || 'en';
+    // Detect language - returns array of {detectedLanguage, confidence}
+    const results = await detector.detect(text);
+    
+    // Destroy detector
+    detector.destroy();
+
+    if (results && results.length > 0) {
+      // Get the top result (highest confidence)
+      const topResult = results[0];
+      console.log(`Detected language: ${topResult.detectedLanguage} (confidence: ${topResult.confidence})`);
+      
+      // Only return if confidence is reasonably high (>0.5)
+      if (topResult.confidence > 0.5) {
+        return topResult.detectedLanguage;
+      }
+    }
+
+    // Fallback to simple detection if confidence is too low
+    return simpleLanguageDetection(text);
   } catch (error) {
-    console.error('Failed to detect language:', error);
+    console.error('Failed to detect language with API:', error);
     return simpleLanguageDetection(text);
   }
 }
@@ -74,65 +127,73 @@ function simpleLanguageDetection(text) {
 }
 
 /**
- * Translate text to target language
+ * Translate text to target language using Chrome's Translator API
  * @param {string} text - Text to translate
  * @param {string} targetLang - Target language code
- * @param {string} sourceLang - Source language code (optional)
+ * @param {string} sourceLang - Source language code (optional, will detect if not provided)
  * @returns {Promise<string>} Translated text
  */
 export async function translateText(text, targetLang, sourceLang = null) {
   try {
-    const apiKeys = await getApiKeys();
-    const apiKey = apiKeys[API_CONFIG_KEYS.TRANSLATOR];
-
-    if (!apiKey) {
-      console.warn('Translator API key not configured, returning original text');
-      return text;
+    // Detect source language if not provided
+    if (!sourceLang) {
+      sourceLang = await detectLanguage(text);
     }
 
     // If source and target are the same, no translation needed
     if (sourceLang === targetLang) {
+      console.log(`Source and target languages are the same (${sourceLang}), no translation needed`);
       return text;
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
+    console.log(`Translating from ${sourceLang} to ${targetLang}`);
 
-    const requestBody = {
-      text: text,
-      target_language: targetLang,
-      task: 'translate'
-    };
-
-    if (sourceLang) {
-      requestBody.source_language = sourceLang;
+    // Check if translation is available for this language pair
+    const availability = await checkTranslatorAvailability(sourceLang, targetLang);
+    
+    if (availability === 'unavailable') {
+      console.warn(`Translation from ${sourceLang} to ${targetLang} is unavailable, returning original text`);
+      return text;
     }
 
-    const response = await fetch(API_ENDPOINTS.TRANSLATOR, {
-      method: 'POST',
-      headers: getHeaders(apiKey),
-      body: JSON.stringify(requestBody),
-      signal: controller.signal
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      throw new Error(`Translation API error: ${response.status} ${response.statusText}`);
+    // Create translator
+    let translator;
+    if (availability === 'after-download') {
+      console.log(`Translator model (${sourceLang} → ${targetLang}) downloading...`);
+      translator = await self.Translator.create({
+        sourceLanguage: sourceLang,
+        targetLanguage: targetLang,
+        monitor(m) {
+          m.addEventListener('downloadprogress', (e) => {
+            console.log(`Translator model download progress: ${Math.round(e.loaded * 100)}%`);
+          });
+        }
+      });
+    } else {
+      translator = await self.Translator.create({
+        sourceLanguage: sourceLang,
+        targetLanguage: targetLang
+      });
     }
 
-    const data = await response.json();
-    return data.translated_text || data.translation || text;
+    // Translate the text
+    const translated = await translator.translate(text);
+    
+    // Destroy translator
+    translator.destroy();
+
+    console.log(`Translation complete: "${text.substring(0, 50)}..." → "${translated.substring(0, 50)}..."`);
+    return translated;
   } catch (error) {
-    console.error('Failed to translate text:', error);
+    console.error('Failed to translate text with Translator API:', error);
     return text;
   }
 }
 
 /**
- * Translate draft if email is not in English
- * @param {string} draftText - Draft text in English
- * @param {string} originalEmailText - Original email text
+ * Translate draft to match the language of the original email
+ * @param {string} draftText - Draft text (usually in English)
+ * @param {string} originalEmailText - Original email text to detect language from
  * @returns {Promise<string>} Translated draft (or original if no translation needed)
  */
 export async function translateDraftIfNeeded(draftText, originalEmailText) {
@@ -140,24 +201,36 @@ export async function translateDraftIfNeeded(draftText, originalEmailText) {
     // Check if translation is enabled in settings
     const settings = await getSettings();
     if (!settings.enableTranslation) {
+      console.log('Translation disabled in settings');
       return draftText;
     }
+
+    console.log('Detecting language of original email...');
 
     // Detect language of original email
     const detectedLang = await detectLanguage(originalEmailText);
 
+    console.log(`Original email language detected: ${detectedLang}`);
+
     // If email is in English, no translation needed
     if (detectedLang === 'en') {
+      console.log('Email is in English, no translation needed');
       return draftText;
     }
 
-    console.log(`Translating draft from English to ${detectedLang}`);
+    console.log(`Email is in ${detectedLang}, translating draft...`);
 
-    // Translate draft to detected language
+    // Translate draft from English to detected language
     const translated = await translateText(draftText, detectedLang, 'en');
+    
+    if (translated !== draftText) {
+      console.log(`Draft successfully translated to ${detectedLang}`);
+    }
+    
     return translated;
   } catch (error) {
     console.error('Failed to translate draft:', error);
+    // Return original draft on failure
     return draftText;
   }
 }

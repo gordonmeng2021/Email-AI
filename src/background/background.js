@@ -7,7 +7,7 @@
 import { fetchUnreadEmails, applyLabel, createDraft } from '../services/gmailAPI.js';
 import { summarizeEmail } from '../services/summarizeEmail.js';
 import { classifyEmail } from '../services/classifyEmail.js';
-import { customClassifyEmail } from '../services/customClassifyEmail.js';
+import { classifyWithCustomLabels, getCustomLabels } from '../services/customClassifyEmail.js';
 import { generateDraft } from '../services/generateDraft.js';
 import { rewriteDraft } from '../services/rewriteDraft.js';
 import { translateDraftIfNeeded } from '../services/translateDraft.js';
@@ -203,17 +203,27 @@ async function processEmail(email) {
     console.log('Step 3c: Checking custom labels...');
     let customLabels = [];
     try {
-      customLabels = await customClassifyEmail(summary, {
-        subject: email.subject,
-        from: email.from
-      });
+      // Get custom labels from storage
+      const customLabelDefinitions = await getCustomLabels();
       
-      // Apply custom labels to Gmail
-      if (customLabels.length > 0 && settings.autoApplyLabels) {
-        for (const labelName of customLabels) {
-          await applyLabel(email.id, labelName);
+      if (customLabelDefinitions.length > 0) {
+        // Classify with custom labels
+        customLabels = await classifyWithCustomLabels(
+          summary,
+          {
+            subject: email.subject,
+            from: email.from
+          },
+          customLabelDefinitions
+        );
+        
+        // Apply custom labels to Gmail
+        if (customLabels.length > 0 && settings.autoApplyLabels) {
+          for (const labelName of customLabels) {
+            await applyLabel(email.id, labelName);
+          }
+          console.log(`Applied custom labels: ${customLabels.join(', ')}`);
         }
-        console.log(`Applied custom labels: ${customLabels.join(', ')}`);
       }
     } catch (error) {
       console.error('Failed to check custom labels:', error);

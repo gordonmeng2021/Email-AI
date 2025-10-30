@@ -1,209 +1,191 @@
-import { getApiKeys } from '../utils/storage.js';
-import { API_ENDPOINTS, getOpenRouterHeaders, OPENROUTER_CONFIG, API_TIMEOUT } from '../config/apiConfig.js';
-import { API_CONFIG_KEYS } from '../utils/constants.js';
+import { EMAIL_CATEGORIES } from '../utils/constants.js';
 
 /**
- * Email Priority Classification Service
- * Uses LLM to determine priority level (High, Medium, Low) for emails requiring response
+ * Email Prioritization Service
+ * Uses Chrome's Writer API to determine priority level (High, Medium, Low) for emails requiring response
+ * Reference: https://developer.chrome.com/docs/ai/writer-api
  */
 
-export const PRIORITY_LEVELS = {
+/**
+ * Priority levels
+ */
+export const PRIORITY = {
   HIGH: 'High',
   MEDIUM: 'Medium',
   LOW: 'Low'
 };
 
 /**
- * Determine priority level for an email
- * @param {string} emailSummary - Summarized email content
- * @param {Object} emailMetadata - Email metadata (subject, sender, etc.)
- * @returns {Promise<{priority: string, reasoning: string}>}
+ * Check if Writer API is available
+ * @returns {Promise<string>} 'available', 'after-download', or 'unavailable'
  */
-export async function prioritizeEmail(emailSummary, emailMetadata = {}) {
+async function checkWriterAvailability() {
   try {
-    // Get API key from storage
-    const apiKeys = await getApiKeys();
-    const apiKey = apiKeys[API_CONFIG_KEYS.OPENROUTER];
+    if (!('Writer' in self)) {
+      console.warn('Writer API not supported in this browser');
+      return 'unavailable';
+    }
+    return await self.ai.writer.availability();
+  } catch (error) {
+    console.error('Error checking Writer API availability:', error);
+    return 'unavailable';
+  }
+}
 
-    if (!apiKey) {
-      console.warn('OpenRouter API key not configured, using fallback prioritization');
+/**
+ * Determine priority level for an email using Writer API
+ * @param {string} emailSummary - Summary of email content
+ * @param {Object} emailMetadata - Email metadata
+ * @returns {Promise<string>} Priority level (High, Medium, Low)
+ */
+export async function prioritizeEmail(emailSummary, emailMetadata) {
+  try {
+    // Check Writer API availability
+    const availability = await checkWriterAvailability();
+    
+    if (availability === 'unavailable') {
+      console.warn('Writer API unavailable, using fallback prioritization');
       return fallbackPrioritization(emailSummary, emailMetadata);
     }
 
-    // Create prioritization prompt
-    const prompt = createPrioritizationPrompt(emailSummary, emailMetadata);
+    // Create writer session
+    const writer = await createPrioritizationWriter(availability);
 
-    // Make API request
-    const result = await makePrioritizationRequest(prompt, apiKey);
-    return result;
+    // Create prioritization task and context
+    const task = 'Write the priority level (High, Medium, or Low) for this email.';
+    const context = createPrioritizationContext(emailSummary, emailMetadata);
+
+    // Get prioritization from Writer API
+    const result = await writer.write(task, { context });
+    
+    // Clean up
+    writer.destroy();
+
+    // Parse and validate result
+    return parsePriorityResult(result);
   } catch (error) {
-    console.error('Failed to prioritize email:', error);
-    // Fallback to simple prioritization
+    console.error('Failed to prioritize email with Writer API:', error);
     return fallbackPrioritization(emailSummary, emailMetadata);
   }
 }
 
 /**
- * Create prioritization prompt for AI
+ * Create a prioritization writer with Writer API
+ * @param {string} availability - Availability status
+ * @returns {Promise<Object>} Writer session
+ */
+async function createPrioritizationWriter(availability) {
+  const sharedContext = `You are an expert email prioritization assistant. Your job is to:
+1. Analyze email content, subject, sender, and context
+2. Determine urgency based on:
+   - Time sensitivity (deadlines, meetings, urgent requests)
+   - Importance of sender (managers, clients, key stakeholders)
+   - Action required (decisions needed, questions to answer)
+   - Impact (high-priority projects, critical issues)
+
+Priority Levels:
+- High: Urgent/time-sensitive, requires immediate attention, from important senders, critical decisions
+- Medium: Important but not urgent, can be addressed within 24 hours, standard work emails
+- Low: Informational, no immediate action needed, can be addressed later
+
+Respond with ONLY the priority level: High, Medium, or Low. No explanation or additional text.`;
+
+  const options = {
+    tone: 'neutral',
+    format: 'plain-text',
+    length: 'short',
+    sharedContext,
+    expectedInputLanguages: ['en'],
+    expectedContextLanguages: ['en'],
+    outputLanguage: 'en'
+  };
+
+  if (availability === 'after-download') {
+    console.log('Writer API model downloading...');
+    return await self.ai.writer.create({
+      ...options,
+      monitor(m) {
+        m.addEventListener('downloadprogress', (e) => {
+          console.log(`Writer API model download progress: ${Math.round(e.loaded * 100)}%`);
+        });
+      }
+    });
+  } else {
+    return await self.ai.writer.create(options);
+  }
+}
+
+/**
+ * Create prioritization context for Writer API
  * @param {string} summary - Email summary
  * @param {Object} metadata - Email metadata
- * @returns {string} Prioritization prompt
+ * @returns {string} Context string
  */
-function createPrioritizationPrompt(summary, metadata) {
-  return `You are an email prioritization assistant. Analyze the following email and determine its priority level.
+function createPrioritizationContext(summary, metadata) {
+  return `Analyze this email and determine its priority:
 
-Priority Definitions:
-- HIGH: Urgent matters, deadlines, important decisions, VIP senders, critical issues
-- MEDIUM: Normal work requests, questions needing response, scheduled matters
-- LOW: FYI emails, non-urgent inquiries, informational content
-
-Email Subject: ${metadata.subject || 'No subject'}
-Email From: ${metadata.from || 'Unknown sender'}
-Email Date: ${metadata.date || 'Unknown date'}
-Email Summary: ${summary}
-
-Respond ONLY with valid JSON in this exact format:
-{
-  "priority": "High|Medium|Low",
-  "reasoning": "Brief explanation (max 50 chars)"
-}`;
+Subject: ${metadata.subject || 'No subject'}
+From: ${metadata.from || 'Unknown sender'}
+Date: ${metadata.date || 'Unknown date'}
+Category: ${metadata.category || 'Unknown'}
+Content: ${summary}`;
 }
 
 /**
- * Make prioritization API request to OpenRouter
- * @param {string} prompt - Prioritization prompt
- * @param {string} apiKey - OpenRouter API key
- * @returns {Promise<{priority: string, reasoning: string}>}
+ * Parse priority result from Writer API response
+ * @param {string} result - API response
+ * @returns {string} Validated priority level
  */
-async function makePrioritizationRequest(prompt, apiKey) {
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
-
-    const response = await fetch(API_ENDPOINTS.OPENROUTER, {
-      method: 'POST',
-      headers: getOpenRouterHeaders(apiKey),
-      body: JSON.stringify({
-        model: OPENROUTER_CONFIG.model,
-        messages: [
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        temperature: 0.3, // Lower temperature for more consistent prioritization
-        max_tokens: 200
-      }),
-      signal: controller.signal
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      throw new Error(`OpenRouter API error: ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-
-    if (!content) {
-      throw new Error('No response from OpenRouter');
-    }
-
-    // Parse JSON response
-    const result = parsePrioritizationResponse(content);
-    return result;
-  } catch (error) {
-    if (error.name === 'AbortError') {
-      throw new Error('Request timeout');
-    }
-    throw error;
+function parsePriorityResult(result) {
+  const cleanResult = result.trim().toLowerCase();
+  
+  if (cleanResult.includes('high')) {
+    return PRIORITY.HIGH;
+  } else if (cleanResult.includes('medium')) {
+    return PRIORITY.MEDIUM;
+  } else if (cleanResult.includes('low')) {
+    return PRIORITY.LOW;
   }
-}
-
-/**
- * Parse prioritization response
- * @param {string} content - Response content
- * @returns {Object} Parsed prioritization
- */
-function parsePrioritizationResponse(content) {
-  try {
-    // Try to extract JSON from response
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      const parsed = JSON.parse(jsonMatch[0]);
-
-      // Validate priority
-      const validPriorities = Object.values(PRIORITY_LEVELS);
-      const priority = validPriorities.includes(parsed.priority)
-        ? parsed.priority
-        : PRIORITY_LEVELS.MEDIUM;
-
-      return {
-        priority,
-        reasoning: parsed.reasoning || 'No reasoning provided'
-      };
-    }
-
-    throw new Error('No valid JSON found in response');
-  } catch (error) {
-    console.error('Failed to parse prioritization response:', error);
-    return {
-      priority: PRIORITY_LEVELS.MEDIUM,
-      reasoning: 'Prioritization failed'
-    };
-  }
+  
+  // Default to medium if unclear
+  return PRIORITY.MEDIUM;
 }
 
 /**
  * Fallback prioritization using simple rules
  * @param {string} summary - Email summary
  * @param {Object} metadata - Email metadata
- * @returns {Object} Prioritization result
+ * @returns {string} Priority level
  */
 function fallbackPrioritization(summary, metadata) {
   const subject = (metadata.subject || '').toLowerCase();
-  const from = (metadata.from || '').toLowerCase();
   const text = (summary || '').toLowerCase();
-
-  // Check for high priority keywords
-  const urgentKeywords = ['urgent', 'asap', 'important', 'critical', 'deadline', 'emergency', 'immediately', 'priority'];
-  if (urgentKeywords.some(keyword => text.includes(keyword) || subject.includes(keyword))) {
-    return {
-      priority: PRIORITY_LEVELS.HIGH,
-      reasoning: 'Urgent keywords detected'
-    };
+  
+  // High priority keywords
+  const highPriorityKeywords = ['urgent', 'asap', 'immediately', 'critical', 'emergency', 'deadline', 'today'];
+  if (highPriorityKeywords.some(keyword => subject.includes(keyword) || text.includes(keyword))) {
+    return PRIORITY.HIGH;
   }
-
-  // Check for question marks (questions typically need responses)
-  const questionCount = (text.match(/\?/g) || []).length + (subject.match(/\?/g) || []).length;
-  if (questionCount >= 2) {
-    return {
-      priority: PRIORITY_LEVELS.MEDIUM,
-      reasoning: 'Multiple questions detected'
-    };
+  
+  // Low priority indicators
+  if (metadata.category === EMAIL_CATEGORIES.NOTIFICATION || 
+      metadata.category === EMAIL_CATEGORIES.ADVERTISEMENT) {
+    return PRIORITY.LOW;
   }
-
-  // Check for low priority keywords
-  const lowPriorityKeywords = ['fyi', 'for your information', 'heads up', 'just letting you know'];
-  if (lowPriorityKeywords.some(keyword => text.includes(keyword) || subject.includes(keyword))) {
-    return {
-      priority: PRIORITY_LEVELS.LOW,
-      reasoning: 'Informational content'
-    };
+  
+  // Question marks often indicate need for response (medium-high)
+  if (subject.includes('?') || text.includes('?')) {
+    return PRIORITY.MEDIUM;
   }
-
-  // Default to medium priority
-  return {
-    priority: PRIORITY_LEVELS.MEDIUM,
-    reasoning: 'Standard request'
-  };
+  
+  // Default to medium
+  return PRIORITY.MEDIUM;
 }
 
 /**
  * Batch prioritize multiple emails
  * @param {Array<{summary: string, metadata: Object}>} emails - Array of emails to prioritize
- * @returns {Promise<Array<{priority: string, reasoning: string}>>}
+ * @returns {Promise<Array<string>>} Array of priority levels
  */
 export async function batchPrioritizeEmails(emails) {
   try {
@@ -216,4 +198,3 @@ export async function batchPrioritizeEmails(emails) {
     throw error;
   }
 }
-

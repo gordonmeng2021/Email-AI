@@ -9,9 +9,9 @@ import {
 function CustomLabels() {
   const [labels, setLabels] = useState([]);
   const [isAddingNew, setIsAddingNew] = useState(false);
-  const [newLabel, setNewLabel] = useState({ name: '', prompt: '' });
+  const [newLabel, setNewLabel] = useState({ name: '', prompt: '', color: '#3B82F6' });
   const [editingId, setEditingId] = useState(null);
-  const [editData, setEditData] = useState({ name: '', prompt: '' });
+  const [editData, setEditData] = useState({ name: '', prompt: '', color: '#3B82F6' });
 
   useEffect(() => {
     loadLabels();
@@ -36,9 +36,10 @@ function CustomLabels() {
       await addCustomLabel({
         name: newLabel.name.trim(),
         prompt: newLabel.prompt.trim(),
+        color: newLabel.color || '#3B82F6',
         enabled: true
       });
-      setNewLabel({ name: '', prompt: '' });
+      setNewLabel({ name: '', prompt: '', color: '#3B82F6' });
       setIsAddingNew(false);
       await loadLabels();
     } catch (error) {
@@ -72,7 +73,7 @@ function CustomLabels() {
 
   function startEditing(label) {
     setEditingId(label.id);
-    setEditData({ name: label.name, prompt: label.prompt });
+    setEditData({ name: label.name, prompt: label.prompt, color: label.color || '#3B82F6' });
   }
 
   async function handleSaveEdit(labelId) {
@@ -84,7 +85,8 @@ function CustomLabels() {
     try {
       await updateCustomLabel(labelId, {
         name: editData.name.trim(),
-        prompt: editData.prompt.trim()
+        prompt: editData.prompt.trim(),
+        color: editData.color || '#3B82F6'
       });
       setEditingId(null);
       await loadLabels();
@@ -96,7 +98,7 @@ function CustomLabels() {
 
   function cancelEdit() {
     setEditingId(null);
-    setEditData({ name: '', prompt: '' });
+    setEditData({ name: '', prompt: '', color: '#3B82F6' });
   }
 
   return (
@@ -152,6 +154,27 @@ function CustomLabels() {
               </p>
             </div>
 
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                Label Color
+              </label>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="color"
+                  value={newLabel.color}
+                  onChange={(e) => setNewLabel({ ...newLabel, color: e.target.value })}
+                  className="w-16 h-10 rounded-lg border border-gray-300 cursor-pointer"
+                />
+                <span className="text-xs text-gray-600">{newLabel.color}</span>
+                <div 
+                  className="ml-auto px-3 py-1 rounded-full text-xs font-medium text-white"
+                  style={{ backgroundColor: newLabel.color }}
+                >
+                  {newLabel.name || 'Preview'}
+                </div>
+              </div>
+            </div>
+
             <div className="flex gap-2">
               <button
                 onClick={handleAddLabel}
@@ -162,7 +185,7 @@ function CustomLabels() {
               <button
                 onClick={() => {
                   setIsAddingNew(false);
-                  setNewLabel({ name: '', prompt: '' });
+                  setNewLabel({ name: '', prompt: '', color: '#3B82F6' });
                 }}
                 className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded-lg transition duration-200 text-sm"
               >
@@ -211,6 +234,27 @@ function CustomLabels() {
                     />
                   </div>
 
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Label Color
+                    </label>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="color"
+                        value={editData.color}
+                        onChange={(e) => setEditData({ ...editData, color: e.target.value })}
+                        className="w-16 h-10 rounded-lg border border-gray-300 cursor-pointer"
+                      />
+                      <span className="text-xs text-gray-600">{editData.color}</span>
+                      <div 
+                        className="ml-auto px-3 py-1 rounded-full text-xs font-medium text-white"
+                        style={{ backgroundColor: editData.color }}
+                      >
+                        {editData.name || 'Preview'}
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="flex gap-2">
                     <button
                       onClick={() => handleSaveEdit(label.id)}
@@ -231,6 +275,10 @@ function CustomLabels() {
                 <div>
                   <div className="flex items-start justify-between mb-2">
                     <div className="flex items-center gap-2">
+                      <div 
+                        className="w-3 h-3 rounded-full" 
+                        style={{ backgroundColor: label.color || '#3B82F6' }}
+                      ></div>
                       <h3 className="text-sm font-semibold text-gray-800">{label.name}</h3>
                       <span className={`text-xs px-2 py-0.5 rounded ${label.enabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
                         {label.enabled ? 'Active' : 'Inactive'}

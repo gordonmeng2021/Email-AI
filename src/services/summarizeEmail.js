@@ -1,32 +1,62 @@
-import { getApiKeys } from '../utils/storage.js';
-import { API_ENDPOINTS, getHeaders, API_TIMEOUT, MAX_RETRIES, RETRY_DELAY } from '../config/apiConfig.js';
-import { API_CONFIG_KEYS, ERROR_MESSAGES } from '../utils/constants.js';
-
 /**
  * Email Summarization Service
- * Uses Summarizer API to compress and extract meaning from raw email text
+ * Uses Chrome's built-in Summarizer API (Gemini Nano) to compress and extract meaning from raw email text
+ * Reference: https://developer.chrome.com/docs/ai/summarizer-api
  */
 
 /**
- * Summarize email content
+ * Check if Summarizer API is available
+ * @returns {Promise<string>} 'available', 'after-download', or 'unavailable'
+ */
+async function checkSummarizerAvailability() {
+  try {
+    if (!('Summarizer' in self)) {
+      console.warn('Summarizer API not supported in this browser');
+      return 'unavailable';
+    }
+    return await self.Summarizer.availability();
+  } catch (error) {
+    console.error('Error checking Summarizer API availability:', error);
+    return 'unavailable';
+  }
+}
+
+/**
+ * Summarize email content using Chrome's Summarizer API
  * @param {string} emailContent - Raw email content to summarize
  * @returns {Promise<string>} Summarized text
  */
 export async function summarizeEmail(emailContent) {
   try {
-    // Get API key from storage
-    const apiKeys = await getApiKeys();
-    const apiKey = apiKeys[API_CONFIG_KEYS.SUMMARIZER];
-
-    if (!apiKey) {
-      console.warn('Summarizer API key not configured, using original content');
-      // Return truncated content if API key is missing
+    // Check Summarizer API availability
+    console.log('Checking Summarizer API availability...');
+    const availability = await checkSummarizerAvailability();
+    console.log('Summarizer API availability:', availability);
+    if (availability === 'unavailable') {
+      console.warn('Summarizer API unavailable, using truncated content');
       return emailContent.substring(0, 500) + '...';
     }
 
-    // Make API request with retry logic
-    const summary = await makeRequestWithRetry(emailContent, apiKey);
-    return summary;
+    // Clean the content - remove HTML if present
+    const cleanContent = emailContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    
+    if (cleanContent.length < 50) {
+      // Content too short to summarize
+      return cleanContent;
+    }
+
+    // Create summarizer with appropriate options for email
+    const summarizer = await createSummarizer(availability, 'tldr', 'short');
+    
+    // Summarize the content
+    const summary = await summarizer.summarize(cleanContent, {
+      context: 'This is an email that needs to be condensed into a brief summary.'
+    });
+    
+    // Clean up
+    summarizer.destroy();
+    
+    return summary || cleanContent.substring(0, 500) + '...';
   } catch (error) {
     console.error('Failed to summarize email:', error);
     // Fallback to truncated content
@@ -35,64 +65,35 @@ export async function summarizeEmail(emailContent) {
 }
 
 /**
- * Make API request with retry logic
- * @param {string} content - Content to summarize
- * @param {string} apiKey - API key
- * @param {number} attempt - Current attempt number
- * @returns {Promise<string>} Summary
+ * Create a summarizer session
+ * @param {string} availability - Availability status
+ * @param {string} type - Type of summary (tldr, key-points, teaser, headline)
+ * @param {string} length - Length (short, medium, long)
+ * @returns {Promise<Object>} Summarizer instance
  */
-async function makeRequestWithRetry(content, apiKey, attempt = 1) {
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
+async function createSummarizer(availability, type = 'tldr', length = 'short') {
+  const options = {
+    type,
+    length,
+    format: 'plain-text',
+    sharedContext: 'Summarizing email content for quick understanding.'
+  };
 
-    const response = await fetch(API_ENDPOINTS.SUMMARIZER, {
-      method: 'POST',
-      headers: getHeaders(apiKey),
-      body: JSON.stringify({
-        text: content,
-        max_length: 200,
-        min_length: 50
-      }),
-      signal: controller.signal
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      if (response.status === 429 && attempt < MAX_RETRIES) {
-        // Rate limit - retry after delay
-        await sleep(RETRY_DELAY * attempt);
-        return makeRequestWithRetry(content, apiKey, attempt + 1);
+  if (availability === 'after-download') {
+    console.log('Summarizer model downloading...');
+    return await self.Summarizer.create({
+      ...options,
+      monitor(m) {
+        m.addEventListener('downloadprogress', (e) => {
+          console.log(`Summarizer model download progress: ${Math.round(e.loaded * 100)}%`);
+        });
       }
-      throw new Error(`Summarizer API error: ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    return data.summary || data.text || content;
-  } catch (error) {
-    if (error.name === 'AbortError') {
-      throw new Error('Request timeout');
-    }
-
-    if (attempt < MAX_RETRIES) {
-      console.warn(`Summarization attempt ${attempt} failed, retrying...`);
-      await sleep(RETRY_DELAY * attempt);
-      return makeRequestWithRetry(content, apiKey, attempt + 1);
-    }
-
-    throw error;
+    });
+  } else {
+    return await self.Summarizer.create(options);
   }
 }
 
-/**
- * Sleep utility for retry delays
- * @param {number} ms - Milliseconds to sleep
- * @returns {Promise<void>}
- */
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
 
 /**
  * Batch summarize multiple emails
@@ -112,43 +113,78 @@ export async function batchSummarizeEmails(emailContents) {
 }
 
 /**
- * Extract key points from email
+ * Extract key points from email using Summarizer API
  * @param {string} emailContent - Email content
  * @returns {Promise<Array<string>>} Array of key points
  */
 export async function extractKeyPoints(emailContent) {
   try {
-    const apiKeys = await getApiKeys();
-    const apiKey = apiKeys[API_CONFIG_KEYS.SUMMARIZER];
-
-    if (!apiKey) {
-      return ['Summary not available - API key not configured'];
+    const availability = await checkSummarizerAvailability();
+    
+    if (availability === 'unavailable') {
+      return ['Summary not available - Summarizer API unavailable'];
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT);
+    // Clean the content
+    const cleanContent = emailContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    
+    if (cleanContent.length < 50) {
+      return [cleanContent];
+    }
 
-    const response = await fetch(API_ENDPOINTS.SUMMARIZER, {
-      method: 'POST',
-      headers: getHeaders(apiKey),
-      body: JSON.stringify({
-        text: emailContent,
-        extract_key_points: true,
-        max_points: 5
-      }),
-      signal: controller.signal
+    // Create summarizer for key-points extraction
+    const summarizer = await createSummarizer(availability, 'key-points', 'short');
+    
+    // Extract key points (returns as markdown bullet list)
+    const keyPointsText = await summarizer.summarize(cleanContent, {
+      context: 'Extract the most important points from this email.'
     });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      throw new Error(`Failed to extract key points: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    return data.key_points || [];
+    
+    // Clean up
+    summarizer.destroy();
+    
+    // Parse markdown bullet points into array
+    const keyPoints = keyPointsText
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.startsWith('- ') || line.startsWith('* '))
+      .map(line => line.substring(2).trim());
+    
+    return keyPoints.length > 0 ? keyPoints : [keyPointsText];
   } catch (error) {
     console.error('Failed to extract key points:', error);
     return [];
+  }
+}
+
+/**
+ * Create headline for email using Summarizer API
+ * @param {string} emailContent - Email content
+ * @returns {Promise<string>} Generated headline
+ */
+export async function createHeadline(emailContent) {
+  try {
+    const availability = await checkSummarizerAvailability();
+    
+    if (availability === 'unavailable') {
+      return 'Email';
+    }
+
+    const cleanContent = emailContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    
+    if (cleanContent.length < 20) {
+      return cleanContent;
+    }
+
+    const summarizer = await createSummarizer(availability, 'headline', 'short');
+    const headline = await summarizer.summarize(cleanContent, {
+      context: 'Create a brief headline that captures the main point.'
+    });
+    
+    summarizer.destroy();
+    return headline;
+  } catch (error) {
+    console.error('Failed to create headline:', error);
+    return 'Email';
   }
 }

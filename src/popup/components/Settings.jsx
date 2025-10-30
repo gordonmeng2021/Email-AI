@@ -1,17 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { getApiKeys, saveApiKeys, getSettings, saveSettings } from '../../utils/storage';
-import { API_CONFIG_KEYS, TONE_OPTIONS, SUCCESS_MESSAGES } from '../../utils/constants';
+import { getSettings, saveSettings } from '../../utils/storage';
+import { TONE_OPTIONS, SUCCESS_MESSAGES } from '../../utils/constants';
 
 function Settings() {
-  const [apiKeys, setApiKeys] = useState({
-    [API_CONFIG_KEYS.OPENROUTER]: '',
-    [API_CONFIG_KEYS.SUMMARIZER]: '',
-    [API_CONFIG_KEYS.WRITER]: '',
-    [API_CONFIG_KEYS.REWRITER]: '',
-    [API_CONFIG_KEYS.TRANSLATOR]: '',
-    [API_CONFIG_KEYS.PROOFREADER]: ''
-  });
-
   const [settings, setSettings] = useState({
     autoSync: true,
     syncInterval: 60,
@@ -30,10 +21,7 @@ function Settings() {
 
   async function loadSettings() {
     try {
-      const keys = await getApiKeys();
       const userSettings = await getSettings();
-
-      setApiKeys(keys);
       setSettings(userSettings);
     } catch (error) {
       console.error('Failed to load settings:', error);
@@ -45,7 +33,6 @@ function Settings() {
     setMessage('');
 
     try {
-      await saveApiKeys(apiKeys);
       await saveSettings(settings);
 
       setMessage(SUCCESS_MESSAGES.SETTINGS_SAVED);
@@ -56,10 +43,6 @@ function Settings() {
     } finally {
       setSaving(false);
     }
-  }
-
-  function updateApiKey(key, value) {
-    setApiKeys(prev => ({ ...prev, [key]: value }));
   }
 
   function updateSetting(key, value) {
@@ -74,20 +57,6 @@ function Settings() {
           {message}
         </div>
       )}
-
-      {/* API Keys Section */}
-      <div className="bg-white rounded-lg shadow p-4">
-        <h2 className="text-sm font-bold text-gray-800 mb-3">API Keys</h2>
-        <div className="space-y-3">
-          <ApiKeyInput
-            label="OpenRouter API Key"
-            value={apiKeys[API_CONFIG_KEYS.OPENROUTER]}
-            onChange={(value) => updateApiKey(API_CONFIG_KEYS.OPENROUTER, value)}
-            placeholder="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"
-            required
-          />
-        </div>
-      </div>
 
       {/* General Settings */}
       <div className="bg-white rounded-lg shadow p-4">
@@ -156,37 +125,8 @@ function Settings() {
       {/* Help Text */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
         <p className="text-xs text-blue-800">
-          <strong>Note:</strong> OpenRouter API key is required for email classification.
-          Other API keys are optional - the extension will use fallback methods if not provided.
+          <strong>Note:</strong> All settings are automatically saved and will persist across sessions.
         </p>
-      </div>
-    </div>
-  );
-}
-
-function ApiKeyInput({ label, value, onChange, placeholder, required = false }) {
-  const [showKey, setShowKey] = useState(false);
-
-  return (
-    <div>
-      <label className="block text-xs font-semibold text-gray-700 mb-1">
-        {label} {required && <span className="text-red-500">*</span>}
-      </label>
-      <div className="relative">
-        <input
-          type={showKey ? 'text' : 'password'}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-          className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-        />
-        <button
-          type="button"
-          onClick={() => setShowKey(!showKey)}
-          className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700"
-        >
-          {showKey ? '👁️' : '👁️‍🗨️'}
-        </button>
       </div>
     </div>
   );

@@ -32,12 +32,16 @@
     "storage",
     "scripting",
     "activeTab",
-    "alarms"
+    "alarms",
+    "aiWriterOriginTrial"
   ],
   "host_permissions": [
     "https://mail.google.com/*",
     "https://www.googleapis.com/*",
     "https://api.openrouter.ai/*"
+  ],
+  "trial_tokens": [
+    "YOUR_ORIGIN_TRIAL_TOKEN_HERE"
   ],
   "oauth2": {
     "client_id": "81855222951-mvbajo708rcutos03o75ro07u2v56lfq.apps.googleusercontent.com",

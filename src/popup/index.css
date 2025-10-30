@@ -16,9 +16,35 @@ body {
   width: 400px;
   min-height: 500px;
   max-height: 600px;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
-/* Custom scrollbar - thin and blue themed */
+/* Modern thin scrollbar for root element */
+#root::-webkit-scrollbar {
+  width: 4px;
+}
+
+#root::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#root::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.3);
+  border-radius: 10px;
+}
+
+#root::-webkit-scrollbar-thumb:hover {
+  background: rgba(107, 114, 128, 0.5);
+}
+
+/* Firefox */
+#root {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(156, 163, 175, 0.3) transparent;
+}
+
+/* Custom scrollbar for other elements - thin and blue themed */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
