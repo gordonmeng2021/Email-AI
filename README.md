@@ -318,13 +318,6 @@ Then **reload the extension** in `chrome://extensions/` (click the refresh icon)
 
 The extension uses **Chrome Built-in AI APIs** by default (Gemini Nano), which work out-of-the-box with no setup required. However, you can optionally configure additional APIs for enhanced features:
 
-#### OpenRouter API (Optional - Free Tier Available)
-
-- **Purpose:** Alternative AI model for classification (Gemini 2.0 Flash)
-- **Sign up:** [OpenRouter](https://openrouter.ai/)
-- **Cost:** Free tier available with generous limits
-- **Setup:** Add API key in extension Settings tab
-
 #### Other Chrome APIs (All Built-in, No Keys Needed ✅)
 
 | API | Purpose | Status |
@@ -1037,8 +1030,6 @@ If this project helped you reclaim time from email overload:
 ---
 
 <div align="center">
-
-### 💌 **Made with** ❤️ **and AI**
 
 **Transforming Email Management, One Inbox at a Time**
 
