@@ -103,7 +103,6 @@ Our extension follows a sophisticated, multi-stage AI pipeline:
 
 **AI Services**
 - **Chrome Built-in AI** - Writer, Rewriter, Translator, Proofreader APIs (Gemini Nano)
-- **OpenRouter API** - Gemini 2.0 Flash Experimental (free tier)
 - **Gmail API** - Email management and labeling
 
 **Architecture Patterns**
@@ -204,10 +203,6 @@ Before you begin, ensure you have:
 
 1. **Google Cloud Project** (Free)  
    For Gmail API access via OAuth 2.0
-
-2. **Optional: API Keys** (Free Tier Available)  
-   - **OpenRouter API** - For Gemini 2.0 (has free tier)
-   - Chrome Built-in AI APIs work out-of-the-box (no keys needed)
 
 ---
 
@@ -328,7 +323,7 @@ The extension uses **Chrome Built-in AI APIs** by default (Gemini Nano), which w
 | **Translator API** | Multi-language support | ✅ Built-in |
 | **Proofreader API** | Grammar and spelling checks | ✅ Built-in |
 
-> 💡 **Pro Tip:** The extension works great with Chrome's built-in APIs alone. OpenRouter is only needed if you want to experiment with alternative models or need higher rate limits.
+> 💡 **Pro Tip:** The extension works great with Chrome's built-in APIs alone.
 
 ---
 
@@ -346,10 +341,8 @@ The extension uses **Chrome Built-in AI APIs** by default (Gemini Nano), which w
    - **Auto-apply labels:** Enable (recommended)
    - **Auto-generate drafts:** Enable (recommended)
    - **Enable translation:** Optional (for multi-language support)
-5. **(Optional) Enter API keys:**
-   - **OpenRouter API Key:** If you want to use alternative AI models
-6. **Click "Save Settings"**
-7. **Return to Dashboard** and click **"Sync Now"** to process your first batch of emails
+5. **Click "Save Settings"**
+6. **Return to Dashboard** and click **"Sync Now"** to process your first batch of emails
 
 🎉 **You're all set!** The extension will now automatically manage your inbox.
 
@@ -791,16 +784,6 @@ Required Scopes:
 - **Translator API** - Language translation
 - **Proofreader API** - Grammar checking
 
-### OpenRouter API (Optional)
-```
-Endpoint: https://openrouter.ai/api/v1/chat/completions
-Model: google/gemini-2.0-flash-exp:free (free tier)
-Use Case: Alternative classification model
-Setup: Add API key in extension Settings
-```
-
-> 💡 **Note:** The extension works fully with Chrome's built-in APIs. OpenRouter is optional for experimenting with alternative models.
-
 ---
 
 ## 🔐 Privacy & Security
@@ -989,12 +972,10 @@ Vote on features or suggest new ones by opening an issue with the tag `feature-r
 | **@crxjs/vite-plugin** | Chrome extension bundler | [crxjs.dev](https://crxjs.dev) |
 | **Gmail API** | Email management | [developers.google.com](https://developers.google.com/gmail/api) |
 | **Chrome Built-in AI** | On-device AI (Gemini Nano) | [developer.chrome.com](https://developer.chrome.com/docs/ai/built-in) |
-| **OpenRouter** | Alternative AI models | [openrouter.ai](https://openrouter.ai) |
 
 ### Special Thanks
 
 - **Google Chrome Team** - For the amazing Built-in AI APIs
-- **OpenRouter Team** - For accessible AI model API
 - **React Community** - For excellent documentation
 - **TailwindCSS Team** - For the best CSS framework
 - **Open Source Community** - For inspiration and support
